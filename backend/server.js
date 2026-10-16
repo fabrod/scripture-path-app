@@ -21,10 +21,46 @@ app.use(express.json({ limit: '256kb' }));
 
 const CONTACT_EMAIL = process.env.CONTACT_EMAIL || 'fabrod035@gmail.com';
 
+// ---------- In-memory cache ----------
+// Bible text never changes, so cache aggressively. Render's filesystem is
+// ephemeral, but process memory persists across requests on a warm instance.
+// No external memcached/Redis needed at this scale.
+const cache = new Map();
+const CACHE_TTL = {
+  bible: 24 * 3600 * 1000,   // chapter text is immutable → 24h
+  devotional: 3600 * 1000,   // rotates daily → 1h (key includes date)
+  explain: 24 * 3600 * 1000, // seeded content → 24h
+  search: 6 * 3600 * 1000,   // 6h
+};
+function cacheGet(key) {
+  const hit = cache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > hit.ttl) { cache.delete(key); return null; }
+  hit.hits = (hit.hits || 0) + 1;
+  return hit.value;
+}
+function cacheSet(key, value, ttl) {
+  if (cache.size > 2000) { // simple LRU-ish eviction: drop oldest 10%
+    const keys = [...cache.keys()].slice(0, 200);
+    keys.forEach((k) => cache.delete(k));
+  }
+  cache.set(key, { value, at: Date.now(), ttl });
+}
+app.get('/api/cache-stats', (_req, res) => {
+  res.json({ entries: cache.size });
+});
+
 // ---------- Bundled KJV (public domain) for search + fallback ----------
 let KJV = null;
 try {
-  KJV = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'kjv.json'), 'utf8'));
+  const zlib = require('zlib');
+  const gzPath = path.join(__dirname, 'data', 'kjv.json.gz');
+  const rawPath = path.join(__dirname, 'data', 'kjv.json');
+  if (fs.existsSync(gzPath)) {
+    KJV = JSON.parse(zlib.gunzipSync(fs.readFileSync(gzPath)).toString('utf8'));
+  } else {
+    KJV = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  }
   console.log(`KJV loaded: ${Object.keys(KJV).length} books`);
 } catch (e) {
   console.log('KJV bundle not found — /api/search will use reference lookup only');
@@ -80,6 +116,10 @@ app.get('/privacy', (_req, res) => {
 app.get('/api/bible/:translation/:book/:chapter', async (req, res) => {
   const { translation, book, chapter } = req.params;
   const t = translation.toLowerCase();
+  const cacheKey = `bible:${t}:${book}:${chapter}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return res.json(cached);
+  const send = (obj) => { cacheSet(cacheKey, obj, CACHE_TTL.bible); return res.json(obj); };
   try {
     // Licensed translations via backend-held keys
     if (t === 'esv' && process.env.ESV_API_KEY) {
@@ -88,13 +128,13 @@ app.get('/api/bible/:translation/:book/:chapter', async (req, res) => {
         { Authorization: `Token ${process.env.ESV_API_KEY}` }
       );
       const verses = data.passages?.[0]?.split('\n').filter(Boolean) || [];
-      return res.json({ reference: `${book} ${chapter}`, translation: 'ESV', verses: verses.map((text, i) => ({ verse: i + 1, text: text.trim() })) });
+      return send({ reference: `${book} ${chapter}`, translation: 'ESV', verses: verses.map((text, i) => ({ verse: i + 1, text: text.trim() })) });
     }
     if (t === 'nlt' && process.env.NLT_API_KEY) {
       const data = await fetchJson(
         `https://api.nlt.to/api/passages?ref=${encodeURIComponent(book + ' ' + chapter)}&key=${process.env.NLT_API_KEY}`
       );
-      return res.json({ reference: `${book} ${chapter}`, translation: 'NLT', verses: data });
+      return send({ reference: `${book} ${chapter}`, translation: 'NLT', verses: data });
     }
     if (t === 'nkjv' && process.env.API_BIBLE_KEY) {
       // API.Bible: NKJV bible id de4e12af7f28f599-02
@@ -102,13 +142,13 @@ app.get('/api/bible/:translation/:book/:chapter', async (req, res) => {
         `https://api.scripture.api.bible/v1/bibles/de4e12af7f28f599-02/passages/${encodeURIComponent(book)}.${chapter}?content-type=text`,
         { 'api-key': process.env.API_BIBLE_KEY }
       );
-      return res.json({ reference: `${book} ${chapter}`, translation: 'NKJV', verses: [{ verse: 0, text: stripTags(data?.data?.content) }] });
+      return send({ reference: `${book} ${chapter}`, translation: 'NKJV', verses: [{ verse: 0, text: stripTags(data?.data?.content) }] });
     }
     // Public domain via bible-api.com (no key)
     const data = await fetchJson(
       `https://bible-api.com/${encodeURIComponent(book + ' ' + chapter)}?translation=${t}`
     );
-    return res.json({
+    return send({
       reference: data.reference,
       translation: data.translation_name || t.toUpperCase(),
       verses: (data.verses || []).map((v) => ({ verse: v.verse, text: v.text.trim() })),
@@ -117,7 +157,7 @@ app.get('/api/bible/:translation/:book/:chapter', async (req, res) => {
     // Fallback: bundled KJV for KJV requests
     if (t === 'kjv' && KJV?.[book]?.[chapter]) {
       const verses = Object.entries(KJV[book][chapter]).map(([verse, text]) => ({ verse: Number(verse), text }));
-      return res.json({ reference: `${book} ${chapter}`, translation: 'KJV', verses });
+      return send({ reference: `${book} ${chapter}`, translation: 'KJV', verses });
     }
     res.status(502).json({ error: 'bible text unavailable', detail: String(e.message || e) });
   }
@@ -129,19 +169,23 @@ const REF_RE = /^((?:[123]\s)?[A-Za-z ]+)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$/;
 app.get('/api/search', async (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) return res.json({ results: [] });
+  const cacheKey = `search:${q.toLowerCase()}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return res.json(cached);
+  const send = (obj) => { cacheSet(cacheKey, obj, CACHE_TTL.search); return res.json(obj); };
 
   // 1. Verse reference? e.g. "John 3:16", "Psalm 23"
   const m = q.match(REF_RE);
   if (m) {
     try {
       const data = await fetchJson(`https://bible-api.com/${encodeURIComponent(q)}?translation=kjv`);
-      return res.json({ results: (data.verses || []).map((v) => ({ reference: `${data.reference}:${v.verse}`, text: v.text.trim() })) });
+      return send({ results: (data.verses || []).map((v) => ({ reference: `${data.reference}:${v.verse}`, text: v.text.trim() })) });
     } catch { /* fall through */ }
   }
 
   // 2. Popular topic?
   const topic = TOPICS[q.toLowerCase()];
-  if (topic) return res.json({ results: topic, topic: q });
+  if (topic) return send({ results: topic, topic: q });
 
   // 3. Full-text search over bundled KJV
   if (KJV) {
@@ -159,29 +203,39 @@ app.get('/api/search', async (req, res) => {
       }
       if (results.length >= 50) break;
     }
-    return res.json({ results });
+    return send({ results });
   }
 
-  res.json({ results: [] });
+  return send({ results: [] });
 });
 
 // ---------- Devotional ----------
 // GET /api/devotional → today's devotional (rotates daily)
 app.get('/api/devotional', (_req, res) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const cacheKey = `devotional:${today}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return res.json(cached);
   const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 864e5);
   const d = DEVOTIONALS[dayOfYear % DEVOTIONALS.length];
   const date = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  res.json({ ...d, date });
+  const out = { ...d, date };
+  cacheSet(cacheKey, out, CACHE_TTL.devotional);
+  res.json(out);
 });
 
 // ---------- Chapter explanation ----------
 // GET /api/explain/:book/:chapter
 app.get('/api/explain/:book/:chapter', (req, res) => {
   const key = `${req.params.book} ${req.params.chapter}`;
+  const cacheKey = `explain:${key}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return res.json(cached);
+  const send = (obj) => { cacheSet(cacheKey, obj, CACHE_TTL.explain); return res.json(obj); };
   const found = EXPLANATIONS[key];
-  if (found) return res.json({ reference: key, ...found });
+  if (found) return send({ reference: key, ...found });
   const bookInfo = BOOKS[req.params.book];
-  res.json({
+  return send({
     reference: key,
     summary: `An explanation for ${key} is on its way.`,
     context: bookInfo ? `Part of ${req.params.book}. ${bookInfo.overview}` : '',
@@ -193,9 +247,14 @@ app.get('/api/explain/:book/:chapter', (req, res) => {
 // ---------- Book overview ----------
 // GET /api/book/:book  (shown on the first chapter of each book)
 app.get('/api/book/:book', (req, res) => {
+  const cacheKey = `book:${req.params.book}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return res.json(cached);
   const info = BOOKS[req.params.book];
   if (!info) return res.status(404).json({ error: 'unknown book' });
-  res.json({ book: req.params.book, ...info });
+  const out = { book: req.params.book, ...info };
+  cacheSet(cacheKey, out, CACHE_TTL.explain);
+  res.json(out);
 });
 
 // ---------- Churches ----------
