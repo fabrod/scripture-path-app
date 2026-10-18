@@ -15,7 +15,7 @@
         "EXPO_PUBLIC_API_URL": "https://scripture-path-app.onrender.com"
       },
       "ios": {
-        "image": "latest"
+        "image": "macos-sequoia-15.6-xcode-26.0"
       }
     }
   },
