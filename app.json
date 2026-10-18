@@ -12,6 +12,7 @@
     "icon": "./assets/icon.png",
     "ios": {
       "bundleIdentifier": "com.fabrod.scripturepath",
+      "buildNumber": "2",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Scripture Path uses your location only to find churches near you.",
         "ITSAppUsesNonExemptEncryption": false
