@@ -1,1 +1,41 @@
-{"expo":{"assetBundlePatterns":["**/*"],"extra":{"apiUrl":"https://scripture-path-app.onrender.com"},"icon":"./assets/icon.png","ios":{"bundleIdentifier":"com.fabrod.scripturepath","infoPlist":{"NSLocationWhenInUseUsageDescription":"Scripture Path uses your location only to find churches near you."},"supportsTablet":true},"name":"Scripture Path","orientation":"portrait","plugins":[["expo-location",{"locationWhenInUsePermission":"Scripture Path uses your location only to find churches near you."}]],"scheme":"scripture-path","slug":"scripture-path","splash":{"backgroundColor":"#faf8f4","image":"./assets/splash.png","resizeMode":"contain"},"userInterfaceStyle":"light","version":"1.0.0"}}
+{
+  "expo": {
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "extra": {
+      "apiUrl": "https://scripture-path-app.onrender.com",
+      "eas": {
+        "projectId": "4320464f-c841-47b0-b5db-ea591c28f4c1"
+      }
+    },
+    "icon": "./assets/icon.png",
+    "ios": {
+      "bundleIdentifier": "com.fabrod.scripturepath",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Scripture Path uses your location only to find churches near you.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "supportsTablet": true
+    },
+    "name": "Scripture Path",
+    "orientation": "portrait",
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Scripture Path uses your location only to find churches near you."
+        }
+      ]
+    ],
+    "scheme": "scripture-path",
+    "slug": "scripture-path",
+    "splash": {
+      "backgroundColor": "#faf8f4",
+      "image": "./assets/splash.png",
+      "resizeMode": "contain"
+    },
+    "userInterfaceStyle": "light",
+    "version": "1.0.0"
+  }
+}
