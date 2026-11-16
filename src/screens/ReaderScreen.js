@@ -4,7 +4,6 @@ import {
   Modal, FlatList, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Speech from 'expo-speech';
 import * as Clipboard from 'expo-clipboard';
 import Header from '../components/Header';
 import { Card, Serif } from '../components/ui';
@@ -20,23 +19,16 @@ export default function ReaderScreen({ navigation, route }) {
   const [translation, setTranslation] = useState(route.params?.translation || 'kjv');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [explain, setExplain] = useState(null);
-  const [showExplain, setShowExplain] = useState(false);
   const [bookInfo, setBookInfo] = useState(null);
   const [showBookInfo, setShowBookInfo] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
   const [pickWhat, setPickWhat] = useState(null); // 'book' | 'translation' | null
   const scrollRef = useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    Speech.stop(); setSpeaking(false);
     try {
-      const [ch, ex] = await Promise.all([
-        api.chapter(translation, book, chapter),
-        api.explain(book, chapter).catch(() => null),
-      ]);
-      setData(ch); setExplain(ex);
+      const ch = await api.chapter(translation, book, chapter);
+      setData(ch);
       if (chapter === 1) {
         api.bookOverview(book).then(setBookInfo).catch(() => {});
       } else setBookInfo(null);
@@ -48,19 +40,10 @@ export default function ReaderScreen({ navigation, route }) {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { getSettings().then((s) => s.translation && setTranslation(s.translation)); }, []);
-  useEffect(() => () => Speech.stop(), []);
 
   const changeTranslation = (id) => {
     setTranslation(id); setPickWhat(null);
     getSettings().then((s) => saveSettings({ ...s, translation: id }));
-  };
-
-  const toggleSpeech = () => {
-    if (speaking) { Speech.stop(); setSpeaking(false); return; }
-    if (!data?.verses?.length) return;
-    const text = data.verses.map((v) => v.text).join(' ');
-    setSpeaking(true);
-    Speech.speak(text, { onDone: () => setSpeaking(false), onStopped: () => setSpeaking(false), onError: () => setSpeaking(false) });
   };
 
   const onVersePress = (v) => {
@@ -100,20 +83,6 @@ export default function ReaderScreen({ navigation, route }) {
             <View style={styles.underline} />
           </View>
 
-          {/* Audio player */}
-          <Card tinted>
-            <View style={styles.audioRow}>
-              <Text style={{ fontSize: 24 }}>🎧</Text>
-              <View style={{ flex: 1, marginLeft: 10 }}>
-                <Text style={styles.audioTitle}>Listen to Chapter {chapter}</Text>
-                <Text style={styles.audioSub}>{book} · {t.short} text-to-speech</Text>
-              </View>
-              <TouchableOpacity style={styles.playBtn} onPress={toggleSpeech}>
-                <Text style={styles.playIcon}>{speaking ? '■' : '▶'}</Text>
-              </TouchableOpacity>
-            </View>
-          </Card>
-
           {/* Book overview on chapter 1 */}
           {chapter === 1 && bookInfo && (
             <TouchableOpacity style={styles.expand} onPress={() => setShowBookInfo(!showBookInfo)}>
@@ -126,21 +95,6 @@ export default function ReaderScreen({ navigation, route }) {
               <Text style={styles.paragraph}>{bookInfo.overview}</Text>
               <Text style={styles.themeRow}>Themes: {bookInfo.themes.join(' · ')}</Text>
               <Text style={styles.keyVerse}>Key verse: {bookInfo.keyVerse}</Text>
-            </Card>
-          )}
-
-          {/* Chapter explanation */}
-          {explain && explain.summary && (
-            <TouchableOpacity style={styles.expand} onPress={() => setShowExplain(!showExplain)}>
-              <Text style={styles.expandTitle}>💡 About this chapter</Text>
-              <Text style={styles.chev}>{showExplain ? '⌃' : '⌄'}</Text>
-            </TouchableOpacity>
-          )}
-          {showExplain && explain && (
-            <Card>
-              <Text style={styles.paragraph}>{explain.summary}</Text>
-              <Text style={styles.paragraph}>{explain.context}</Text>
-              {explain.themes?.length > 0 && <Text style={styles.themeRow}>Themes: {explain.themes.join(' · ')}</Text>}
             </Card>
           )}
 
@@ -213,11 +167,6 @@ const styles = StyleSheet.create({
   body: { padding: spacing.md },
   chapterHead: { marginBottom: 8 },
   underline: { height: 3, width: 48, backgroundColor: colors.accent, borderRadius: 2, marginTop: 6 },
-  audioRow: { flexDirection: 'row', alignItems: 'center' },
-  audioTitle: { fontWeight: '700', color: colors.text, fontSize: 15 },
-  audioSub: { color: colors.textLight, fontSize: 12, marginTop: 2 },
-  playBtn: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  playIcon: { color: colors.white, fontSize: 18, marginLeft: 2 },
   expand: {
     backgroundColor: colors.white, borderRadius: radius.md, padding: spacing.md,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

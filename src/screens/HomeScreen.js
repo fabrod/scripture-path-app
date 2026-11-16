@@ -40,7 +40,7 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.hero}>
           <Text style={styles.eyebrow}>✝ Real Scripture Path</Text>
           <Serif size={34} style={styles.headline}>Grow Closer to God Every Day</Serif>
-          <Text style={styles.sub}>Daily devotionals, the full Bible in 15 translations, audio reading, and a prayer community — all free.</Text>
+          <Text style={styles.sub}>Daily devotionals, Scripture reading, and a prayer community — all free.</Text>
           <View style={styles.ctaRow}>
             <PillButton title="Start Reading" onPress={startReading} />
             <PillButton title="Explore Devotionals" outline onPress={() => navigation.navigate('Devotional')} />
@@ -78,15 +78,6 @@ export default function HomeScreen({ navigation }) {
             </TouchableOpacity>
           </Card>
         )}
-
-        {/* Listen */}
-        <Card>
-          <Text style={styles.cardLabel}>🎧 HEAR THE WORD</Text>
-          <Text style={styles.cardText}>Listen to any chapter read aloud, right from the reader.</Text>
-          <TouchableOpacity onPress={startReading}>
-            <Text style={styles.link}>Try it now →</Text>
-          </TouchableOpacity>
-        </Card>
 
         {/* Pray */}
         <Card>

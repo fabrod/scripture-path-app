@@ -37,7 +37,7 @@ export default function SettingsScreen({ navigation }) {
 
         <Text style={styles.sectionHead}>ABOUT</Text>
         <Card>
-          <Text style={styles.about}>Scripture Path helps you grow closer to God every day — devotionals, the Bible in 15 translations, audio reading, and prayer. Free, with no account required.</Text>
+          <Text style={styles.about}>Scripture Path helps you grow closer to God every day through Scripture reading, devotionals, and prayer. Free, with no account required.</Text>
           <Text style={styles.version}>Version 1.0.0 · © 2026 Real Scripture Path Inc.</Text>
         </Card>
       </ScrollView>
